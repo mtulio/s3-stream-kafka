@@ -27,6 +27,7 @@ from utils import u_print, dnow
 
 def main():
     """Main program loop."""
+    spool_dir = os.getenv('S3STREAM_SPOOL_DIR') or '/tmp/s3-stream'
     log_file = os.getenv('LOG_FILE') or None
     log_level = os.getenv('LOG_LEVEL') or logging.INFO
     sqs_loop_interval = os.getenv('SQS_LOOP_INTERVAL') or 10
@@ -48,7 +49,7 @@ def main():
                   queue_max=int(sqs_max_retrieve),
                   logging=logging)
     proc = Processor(logging=logging,
-                     workdir='/tmp/s3-to-kafka-workdir',
+                     workdir=spool_dir,
                      filters=proc_filter,
                      kafka_bs_servers=proc_kf_bs,
                      kafka_topic=proc_kf_tp,
