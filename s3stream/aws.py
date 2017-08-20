@@ -17,6 +17,7 @@
 
 import boto3
 import json
+import logging
 
 
 class S3(object):
@@ -41,8 +42,11 @@ class S3(object):
             dest == None:
             print("#> Error - argument is missing")
 
-        print("# Downloading from S3: {}".format(dest))
-        self.s3.Object(bucket_name, object_key).download_file(dest)
+        logging.info('S3.download() '
+                     'bucket=[{}] key=[{}] dest=[{}]'.format(bucket_name,
+                                                             object_key,
+                                                             dest))
+        s3_resp = self.s3.Object(bucket_name, object_key).download_file(dest)
 
 
 class SQS(object):
@@ -62,7 +66,7 @@ class Queue(SQS):
     """ Queue keeps only one message """
 
     def __init__(self, queue_url=None, queue_name=None,
-                 queue_max=1):
+                 queue_max=1, logging=None):
 
         SQS.__init__(self)
         self.queue_url = queue_url
@@ -78,27 +82,40 @@ class Queue(SQS):
         self.queue_max = queue_max
         self.messages = None
 
+        self.logging = logging
+        if not self.logging:
+            self.logging = logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
     def receive(self):
         try:
-            # self.messages = self.queue.receive_messages(AttributeNames=['All'],
-            #                                             MessageAttributeNames=['All'])
-            m = self.sqs_conn.receive_message(
-                                              QueueUrl=self.queue_url,
-                                              AttributeNames=[
-                                                  'SentTimestamp'
-                                              ],
-                                              MaxNumberOfMessages=1,
-                                              MessageAttributeNames=[
-                                                  'All'
-                                              ],
-                                              VisibilityTimeout=0,
-                                              WaitTimeSeconds=0)
+            m = self.queue.receive_messages(AttributeNames=[
+                                                'SentTimestamp'
+                                            ],
+                                            MaxNumberOfMessages=self.queue_max,
+                                            MessageAttributeNames=[
+                                                'All'
+                                            ],
+                                            VisibilityTimeout=0,
+                                            WaitTimeSeconds=0)
+
+            # m = self.sqs_conn.receive_message(QueueUrl=self.queue_url,
+            #                                   AttributeNames=[
+            #                                       'SentTimestamp'
+            #                                   ],
+            #                                   MaxNumberOfMessages=self.queue_max,
+            #                                   MessageAttributeNames=[
+            #                                       'All'
+            #                                   ],
+            #                                   VisibilityTimeout=0,
+            #                                   WaitTimeSeconds=0)
+            #print m[0].body
+            #print repr(m)
             self.messages = m
             return True
         except:
             raise
 
-    def show_message_body(self, msg_body):
+    def show_message(self, msg_body):
         """ Show message body, maybe can keep out of Object """
         try:
             b = json.loads(msg_body)
@@ -108,15 +125,19 @@ class Queue(SQS):
 
     def show_messages(self):
         """ Show Message(s) from current Queue """
-        if not 'Messages' in self.messages:
+        print("show_messages()")
+        #print self.messages
+        if not self.messages:
             print("#> ERR - There is no messages or malformed messages on queue. ")
             print(json.dumps(self.messages, indent=4))
             sys.exit(1)
 
         try:
-            for m in self.messages['Messages']:
-                print('#> Message1: ')
-                self.show_message_body(m['Body'])
+            #print(json.dumps(self.messages, indent=4))
+
+            for m in self.messages:
+                print('#> Message: ')
+                self.show_message(m.body)
         except:
             raise
 
@@ -124,20 +145,39 @@ class Queue(SQS):
     def get_messages_body(self):
         """ Return only body of messages in the Queue """
         msgs_body = []
-        if not 'Messages' in self.messages:
+        if not self.messages:
             print("#> ERR - There is no messages or malformed messages on queue. ")
             print(json.dumps(self.messages, indent=4))
             sys.exit(1)
 
         try:
-            for m in self.messages['Messages']:
-                msgs_body.append(m['Body'])
+            for m in self.messages:
+                msgs_body.append(m.body)
         except:
             raise
 
         return msgs_body
 
 
-    def delete(self):
+    def delete_messages(self):
         """ Delete Message(s) to SQS """
-        print("TODO")
+        msgs_body = []
+        if not self.messages:
+            print("#> ERR - There is no messages or malformed messages on queue. ")
+            print(json.dumps(self.messages, indent=4))
+            sys.exit(1)
+
+        try:
+            for m in self.messages:
+                print("Deleting the message: {}".format(m.message_id))
+                r = self.queue.delete_messages(Entries=[
+                        {
+                            'Id': m.message_id,
+                            'ReceiptHandle': m.receipt_handle
+                        },
+                    ])
+                print r
+        except:
+            raise
+
+        return msgs_body

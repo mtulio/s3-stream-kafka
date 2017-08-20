@@ -16,11 +16,12 @@
 # limitations under the License.
 
 import json
-import os
+import os, glob
 import io
 import re
 import gzip
-from aws_resource import S3
+import logging
+from aws import S3
 from kafka import KafkaProducer
 
 
@@ -34,12 +35,22 @@ def gzip_decompress(gzip_in, file_out):
 
 class Processor(object):
 
-    def __init__(self, workdir='./', filters=None,
+    def __init__(self, logging=None,
+                 workdir='./', filters=None,
                  kafka_bs_servers='localhost:9092',
-                 kafka_topic=None):
+                 kafka_topic=None,
+                 str_replace=False,
+                 str_repl_src=None,
+                 str_repl_dst=None):
 
+        self.logging = logging
+        if not self.logging:
+            self.logging = logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
         self.workdir = workdir
         self.filter = filters
+        self.str_replace = str_replace
+        self.str_repl_src = str_repl_src
+        self.str_repl_dst = str_repl_dst
 
         self.s3 = S3()
 
@@ -72,8 +83,10 @@ class Processor(object):
                 continue
 
             count_match += 1
-            self.kafka_publish_message(line)
-
+            if self.str_replace:
+                self.kafka_publish_message(re.sub(self.str_repl_src, self.str_repl_dst, line))
+            else:
+                self.kafka_publish_message(line)
 
     def parser_file(self, raw_file):
         """
@@ -107,7 +120,9 @@ class Processor(object):
 
         for msg in msgs_body:
             msg_j = json.loads(msg)
-            print(json.dumps(msg_j, indent=4))
+
+            logging.info('Processor.process_body() - Reading message: {}'.format(msg_j))
+            #print(json.dumps(msg_j, indent=4))
 
             s3_body = msg_j['Records'][0]['s3']
             bucket = s3_body['bucket']['name']
@@ -137,9 +152,15 @@ class Processor(object):
             else:
                 print("#> File Uncompressed here: {}".format(local_raw))
 
+
             if not self.kafka_get_connection():
                 self.kafka_connect()
 
             self.parser_file(local_raw)
             print("#> OK commit flush messages")
             self.kafka_commit()
+
+            for filename in glob.glob("{}*".format(local_raw)):
+                os.remove(filename)
+
+        return True

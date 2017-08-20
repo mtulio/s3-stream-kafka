@@ -18,29 +18,45 @@
 import json
 import sys
 import os
-from aws_resource import Queue
+import logging
+from aws import Queue
 from processor import Processor
 
 
 def main():
+    log_file = os.getenv('LOG_FILE') or None
+    log_level = os.getenv('LOG_LEVEL') or None
     sqs_endpoint = os.getenv('SQS_URL')
-    proc_filter = os.getenv('S3_FILTER')
+    proc_filter = os.getenv('S3_FILTER') or None
     proc_kf_bs = os.getenv('KAFKA_BOOTSTRAP')
     proc_kf_tp = os.getenv('KAFKA_TOPIC')
+    proc_str_replace = os.getenv('S3_STR_RPL') or False
+    proc_str_replace_src = os.getenv('S3_STR_RPL_SRC') or None
+    proc_str_replace_dst = os.getenv('S3_STR_RPL_DST') or None
 
-    queue = Queue(queue_url=sqs_endpoint)
-    proc = Processor(workdir='/tmp/s3-to-kafka-workdir',
+    if log_file:
+        logging.basicConfig(filename=log_file, level=logging.INFO)
+    else:
+        logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+    queue = Queue(queue_url=sqs_endpoint, logging=logging)
+    proc = Processor(logging=logging,
+                     workdir='/tmp/s3-to-kafka-workdir',
                      filters=proc_filter,
                      kafka_bs_servers=proc_kf_bs,
-                     kafka_topic=proc_kf_tp)
+                     kafka_topic=proc_kf_tp,
+                     str_replace=proc_str_replace,
+                     str_repl_src=proc_str_replace_src,
+                     str_repl_dst=proc_str_replace_dst)
 
     # Loop will start here
     try:
         queue.receive()
-        m = queue.get_messages_body()
-        print(m)
+        #queue.show_messages()
+        #m = queue.get_messages_body()
         if proc.process_body(queue.get_messages_body()):
-            print("#> Proc Status:".format(proc.status(state='latest')))
+            #print("#> Proc Status:".format(proc.status(state='latest')))
+            queue.delete_messages()
 
     except Exception as e:
         print("#> Errors found getting messages= {}".format(e))
