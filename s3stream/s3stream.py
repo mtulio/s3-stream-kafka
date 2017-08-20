@@ -19,14 +19,18 @@ import json
 import sys
 import os
 import logging
+import time
 from aws import Queue
 from processor import Processor
+from utils import u_print, dnow
 
 
 def main():
     log_file = os.getenv('LOG_FILE') or None
     log_level = os.getenv('LOG_LEVEL') or None
+    sqs_loop_interval = os.getenv('SQS_LOOP_INTERVAL') or None
     sqs_endpoint = os.getenv('SQS_URL')
+    sqs_max_retrieve = os.getenv('SQS_MAX_RETRIEVE') or 1
     proc_filter = os.getenv('S3_FILTER') or None
     proc_kf_bs = os.getenv('KAFKA_BOOTSTRAP')
     proc_kf_tp = os.getenv('KAFKA_TOPIC')
@@ -39,7 +43,9 @@ def main():
     else:
         logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
-    queue = Queue(queue_url=sqs_endpoint, logging=logging)
+    queue = Queue(queue_url=sqs_endpoint,
+                  queue_max=int(sqs_max_retrieve),
+                  logging=logging)
     proc = Processor(logging=logging,
                      workdir='/tmp/s3-to-kafka-workdir',
                      filters=proc_filter,
@@ -49,17 +55,23 @@ def main():
                      str_repl_src=proc_str_replace_src,
                      str_repl_dst=proc_str_replace_dst)
 
-    # Loop will start here
     try:
-        queue.receive()
-        #queue.show_messages()
-        #m = queue.get_messages_body()
-        if proc.process_body(queue.get_messages_body()):
-            #print("#> Proc Status:".format(proc.status(state='latest')))
-            queue.delete_messages()
+        while True:
+            queue.receive()
+            if queue.is_empty():
+                u_print(" Queue is empty, waiting {} seconds.".format(sqs_loop_interval))
+                time.sleep(int(sqs_loop_interval))
+                continue
+
+            #queue.show_messages()
+            if proc.process_body(queue.get_messages_body()):
+                #u_print("#> Proc Status:".format(proc.status(state='latest')))
+                queue.delete_messages()
+                queue.stat()
 
     except Exception as e:
-        print("#> Errors found getting messages= {}".format(e))
+        u_print(" Errors found getting messages= {}".format(e))
+        proc.kafka_close()
         sys.exit(1)
 
 

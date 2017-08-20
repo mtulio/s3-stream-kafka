@@ -23,7 +23,7 @@ import gzip
 import logging
 from aws import S3
 from kafka import KafkaProducer
-
+from utils import u_print, dnow
 
 def gzip_decompress(gzip_in, file_out):
     """ Decompress a GZIP file to an given file """
@@ -66,12 +66,12 @@ class Processor(object):
         return self.kf_producer
 
     def kafka_publish_message(self, message):
-        #print("#> Sending message bellow to kafka: ")
-        #print message
         self.kf_sender = self.kf_producer.send(self.kf_topic, value=message.encode('utf-8'));
 
     def kafka_commit(self):
         self.kf_producer.flush()
+
+    def kafka_close(self):
         self.kf_producer.close()
 
     def parse_stream(self, fd):
@@ -88,6 +88,8 @@ class Processor(object):
             else:
                 self.kafka_publish_message(line)
 
+        u_print(" Processor.parse_stream() - Lines: processed=[{}] matched=[{}]".format(count_all, count_match))
+
     def parser_file(self, raw_file):
         """
         First step of stream
@@ -98,18 +100,19 @@ class Processor(object):
         """
         try:
             with io.open(raw_file, 'r') as fd:
+                u_print(" Processor.parser_file() - Streaming file {}".format(raw_file))
                 return self.parse_stream(fd)
 
         except IOError as e:
-            print("#> I/O error({0}): {1}".format(e.errno, e.strerror))
+            u_print(" ERROR I/O ({0}): {1}".format(e.errno, e.strerror))
             return False
 
         except Exception as e:
-            print("#> Unexpected error: ".format(e))
+            u_print(" Unexpected error: ".format(e))
             raise
 
-    def process_status(self):
-        print("OK")
+    def process_stat(self):
+        u_print(" Time to process N=[] messages: start=[] finish=[]")
 
     def process_body(self, msgs_body):
         """
@@ -121,7 +124,7 @@ class Processor(object):
         for msg in msgs_body:
             msg_j = json.loads(msg)
 
-            logging.info('Processor.process_body() - Reading message: {}'.format(msg_j))
+            u_print(' Processor.process_body() - Reading message: {}'.format(msg_j))
             #print(json.dumps(msg_j, indent=4))
 
             s3_body = msg_j['Records'][0]['s3']
@@ -133,34 +136,39 @@ class Processor(object):
             # Creating local dir
             local_dir = os.path.dirname(local_file)
             if not os.path.exists(local_dir):
-                print("Creating directory: {}".format(local_dir))
+                u_print(" Processor.process_body() - Creating directory: {}".format(local_dir))
                 os.makedirs(local_dir)
 
             if not os.path.exists(local_dir):
-                print("#> Error - Failed to create directory")
+                u_print(" ERROR - Failed to create directory")
 
             self.s3.download(bucket_name=bucket,
                              object_key=obj,
                              dest=local_file)
 
-            print("#> Extracting ZIP file")
+            u_print(' Processor.process_body() - Extracting ZIP file')
+
             #utils.gzip_decompress()
             local_raw = local_file.split('.gz')[0]
             gzip_decompress(local_file, local_raw)
             if not os.path.exists(local_raw):
-                print("#> UNcompressed file not found: {}".format(local_raw))
+                u_print(" Uncompressed file not found: {}".format(local_raw))
             else:
-                print("#> File Uncompressed here: {}".format(local_raw))
+                u_print(" Processor.process_body() - File Uncompressed here: {}".format(local_raw))
 
 
             if not self.kafka_get_connection():
+                u_print(" Processor.process_body() - Connecting to Kafka")
                 self.kafka_connect()
 
+            u_print(" Processor.process_body() - Parsing file")
             self.parser_file(local_raw)
-            print("#> OK commit flush messages")
+
+            u_print(" Processor.process_body() - Commit messages to Kafka")
             self.kafka_commit()
 
             for filename in glob.glob("{}*".format(local_raw)):
-                os.remove(filename)
+                if os.path.exists(filename):
+                    os.remove(filename)
 
         return True

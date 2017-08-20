@@ -18,7 +18,7 @@
 import boto3
 import json
 import logging
-
+from utils import u_print, dnow
 
 class S3(object):
 
@@ -40,12 +40,11 @@ class S3(object):
         if bucket_name == None or \
             object_key == None or \
             dest == None:
-            print("#> Error - argument is missing")
+            u_print(" Error - argument is missing")
 
-        logging.info('S3.download() '
-                     'bucket=[{}] key=[{}] dest=[{}]'.format(bucket_name,
-                                                             object_key,
-                                                             dest))
+        u_print('S3.download() - bucket=[{}] key=[{}] dest=[{}]'.format(bucket_name,
+                                                                       object_key,
+                                                                       dest))
         s3_resp = self.s3.Object(bucket_name, object_key).download_file(dest)
 
 
@@ -72,7 +71,7 @@ class Queue(SQS):
         self.queue_url = queue_url
 
         if self.queue_url == None and queue_name == None:
-            print("#> No URL or Name found. Exiting")
+            u_print(" No URL or Name found. Exiting")
             sys.exit(1)
 
         if self.queue_url == None:
@@ -80,11 +79,23 @@ class Queue(SQS):
 
         self.queue = self.sqs.Queue(self.queue_url)
         self.queue_max = queue_max
-        self.messages = None
+        self.messages = []
 
         self.logging = logging
         if not self.logging:
             self.logging = logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
+        self.metrics_queue_time = (None, None)
+
+    def is_empty(self):
+        if len(self.messages) < 1:
+            return True
+        else:
+            return False
+
+    def stat(self):
+        q_start, q_len = self.metrics_queue_time
+        u_print(" Queue stat N=[{}] messages: start=[{}] finish=[{}]".format(q_len, q_start, dnow()))
 
     def receive(self):
         try:
@@ -108,8 +119,8 @@ class Queue(SQS):
             #                                   ],
             #                                   VisibilityTimeout=0,
             #                                   WaitTimeSeconds=0)
-            #print m[0].body
-            #print repr(m)
+            u_print(' Queue.receive() Found {} messages'.format(len(m)))
+            self.metrics_queue_time_receive = dnow(), len(m)
             self.messages = m
             return True
         except:
@@ -119,24 +130,22 @@ class Queue(SQS):
         """ Show message body, maybe can keep out of Object """
         try:
             b = json.loads(msg_body)
-            print(json.dumps(b, indent=4))
+            u_print(json.dumps(b, indent=4))
         except:
             raise
 
     def show_messages(self):
         """ Show Message(s) from current Queue """
-        print("show_messages()")
+        #print("show_messages()")
         #print self.messages
         if not self.messages:
-            print("#> ERR - There is no messages or malformed messages on queue. ")
-            print(json.dumps(self.messages, indent=4))
+            u_print(" Queue.show_messages() ERR - There is no messages or malformed messages on queue. ")
+            u_print(json.dumps(self.messages, indent=4))
             sys.exit(1)
 
         try:
-            #print(json.dumps(self.messages, indent=4))
-
             for m in self.messages:
-                print('#> Message: ')
+                #u_print('#> Message: ')
                 self.show_message(m.body)
         except:
             raise
@@ -146,8 +155,8 @@ class Queue(SQS):
         """ Return only body of messages in the Queue """
         msgs_body = []
         if not self.messages:
-            print("#> ERR - There is no messages or malformed messages on queue. ")
-            print(json.dumps(self.messages, indent=4))
+            u_print(" Queue.get_messages_body() ERR - There is no messages or malformed messages on queue. ")
+            u_print(json.dumps(self.messages, indent=4))
             sys.exit(1)
 
         try:
@@ -163,13 +172,13 @@ class Queue(SQS):
         """ Delete Message(s) to SQS """
         msgs_body = []
         if not self.messages:
-            print("#> ERR - There is no messages or malformed messages on queue. ")
-            print(json.dumps(self.messages, indent=4))
+            u_print(" Queue.delete_messages() ERR - There is no messages or malformed messages on queue. ")
+            u_print(json.dumps(self.messages, indent=4))
             sys.exit(1)
 
         try:
             for m in self.messages:
-                print("Deleting the message: {}".format(m.message_id))
+                u_print(" Queue.delete_messages() Deleting the message: {}".format(m.message_id))
                 r = self.queue.delete_messages(Entries=[
                         {
                             'Id': m.message_id,
@@ -177,6 +186,7 @@ class Queue(SQS):
                         },
                     ])
                 print r
+                u_print(" Queue.delete_messages() Deletied: {}".format(r))
         except:
             raise
 
