@@ -1,18 +1,29 @@
 # s3-stream
 
-Streaming S3 object text data, like Cloud Front logs, to an given broker, log service, ES, etc
+S3stream streaming S3 object text data, like Cloud Front logs, to an given
+output. Supported output are:
+
+* Kafka
+
+But we will support these outputs:
+
+* Syslog (in dev)
+* Elasticsearch
+* Raw logs
 
 ## Overview
 
-This project will get an S3 file, from an SQS notification, filter it and publish on Kafka.
+This project will get an S3 file, from an SQS notification (we are assuming
+that you have already create it), filter something (no required) and publish
+on Kafka, or other output providers.
 
-## Initial Architecture
+The simple architecture are:
 
 ```
   |_S3_| -> |_SQS_|<-----------.
                |               |
 .--------------:---------------|--------------.
-:|_INIT_|      |               |--|_DRY_RUN_|-:--> sys.exit(0)
+:|_INIT_|      |               |-|_ONE_SHOOT_|:--> sys.exit(0)
 :   |          |         |_SQS_DELETE_|       :
 :   '-->|_SQS_POOLER_|<--------|              :
 :              |               |              :
@@ -39,16 +50,11 @@ This project will get an S3 file, from an SQS notification, filter it and publis
 
 ```
 
-```
-  |_S3_| -> |_SQS_|
-               | ------ [COMMIT]--------------------------------.
-               |                                                [OK]
-               '--[RECEIVE]--,                                    '-,-[FAIL] --> Exit(1)
-  |_S3-to-kafka_|-> |_CONSUMER_|--> |_S3_GET_| --> |_FILTER_| --> |_K_PUBLISH_|
-                                                                       |
-                                                                       |
-                                                                    |_KAFKA_|
-```
+* Limitations
+
+We do not create the SNS topic and we are assuming that you have notifications
+when queue is too long, or consumir (s3stream) stopped, etc.
+
 
 ## Goals
 

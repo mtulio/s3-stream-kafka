@@ -26,14 +26,15 @@ from utils import u_print, dnow
 
 
 def main():
+    """Main program loop."""
     log_file = os.getenv('LOG_FILE') or None
-    log_level = os.getenv('LOG_LEVEL') or None
-    sqs_loop_interval = os.getenv('SQS_LOOP_INTERVAL') or None
+    log_level = os.getenv('LOG_LEVEL') or logging.INFO
+    sqs_loop_interval = os.getenv('SQS_LOOP_INTERVAL') or 10
     sqs_endpoint = os.getenv('SQS_URL')
-    sqs_max_retrieve = os.getenv('SQS_MAX_RETRIEVE') or 1
+    sqs_max_retrieve = os.getenv('SQS_MAX_MSGS_RETRIEVE') or 1
     proc_filter = os.getenv('S3_FILTER') or None
-    proc_kf_bs = os.getenv('KAFKA_BOOTSTRAP')
-    proc_kf_tp = os.getenv('KAFKA_TOPIC')
+    proc_kf_bs = os.getenv('OUTPUT_KAFKA_BOOTSTRAP') or None
+    proc_kf_tp = os.getenv('OUTPUT_KAFKA_TOPIC') or None
     proc_str_replace = os.getenv('S3_STR_RPL') or False
     proc_str_replace_src = os.getenv('S3_STR_RPL_SRC') or None
     proc_str_replace_dst = os.getenv('S3_STR_RPL_DST') or None

@@ -78,6 +78,7 @@ class Queue(SQS):
             self.queue_url = self.sqs.get_queue_url(QueueName=queue_name)
 
         self.queue = self.sqs.Queue(self.queue_url)
+        self.sqs_attr = None
         self.queue_max = queue_max
         self.messages = []
 
@@ -92,6 +93,21 @@ class Queue(SQS):
             return True
         else:
             return False
+
+    def attributes_update(self):
+        self.sqs_attr = self.sqs_conn.get_queue_attributes(QueueUrl=self.queue_url,
+                                                           AttributeNames=[
+                                                                'All'
+                                                           ])['Attributes'] or None
+
+    def attributes_get(self, attr_name):
+        if not self.sqs_attr:
+            return None
+
+        if attr_name not in self.sqs_attr:
+            return None
+
+        return self.sqs_attr[attr_name]
 
     def stat(self):
         q_start, q_len = self.metrics_queue_time
@@ -109,18 +125,12 @@ class Queue(SQS):
                                             VisibilityTimeout=0,
                                             WaitTimeSeconds=0)
 
-            # m = self.sqs_conn.receive_message(QueueUrl=self.queue_url,
-            #                                   AttributeNames=[
-            #                                       'SentTimestamp'
-            #                                   ],
-            #                                   MaxNumberOfMessages=self.queue_max,
-            #                                   MessageAttributeNames=[
-            #                                       'All'
-            #                                   ],
-            #                                   VisibilityTimeout=0,
-            #                                   WaitTimeSeconds=0)
-            u_print(' Queue.receive() Found {} messages'.format(len(m)))
-            self.metrics_queue_time_receive = dnow(), len(m)
+            u_print(' Queue.receive() Get {} messages.'.format(len(m)))
+            self.attributes_update()
+            u_print(' Queue.receive() Total aproximated=[{}] Delayed=[{}] NotVisible=[{}]'.format(
+                                    self.attributes_get('ApproximateNumberOfMessages'),
+                                    self.attributes_get('ApproximateNumberOfMessagesDelayed'),
+                                    self.attributes_get('ApproximateNumberOfMessagesNotVisible')))
             self.messages = m
             return True
         except:
