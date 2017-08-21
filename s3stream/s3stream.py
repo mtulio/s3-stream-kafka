@@ -76,8 +76,8 @@ def main():
         while True:
             queue.receive()
             if queue.is_empty():
-                u_print(" Queue is empty, waiting {} seconds.".format(sqs_loop_interval))
-                time.sleep(int(sqs_loop_interval))
+                u_print(" Queue is empty, waiting {} seconds.".format(cfg['sqs_interval']))
+                time.sleep(int(cfg['sqs_interval']))
                 continue
 
             if proc.processor(queue.get_messages_body()):
