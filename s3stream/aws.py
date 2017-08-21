@@ -18,7 +18,7 @@
 import boto3
 import json
 import logging
-from utils import u_print, dnow
+from utils import u_print, u_print_d, dnow, Stats
 
 class S3(object):
 
@@ -42,10 +42,10 @@ class S3(object):
             dest == None:
             u_print(" Error - argument is missing")
 
-        u_print('S3.download() - bucket=[{}] key=[{}] dest=[{}]'.format(bucket_name,
+        u_print_d('S3.download() - bucket=[{}] key=[{}] dest=[{}]'.format(bucket_name,
                                                                        object_key,
                                                                        dest))
-        s3_resp = self.s3.Object(bucket_name, object_key).download_file(dest)
+        return self.s3.Object(bucket_name, object_key).download_file(dest)
 
 
 class SQS(object):
@@ -86,21 +86,46 @@ class Queue(SQS):
         if not self.logging:
             self.logging = logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
-        self.metrics_queue_time = (None, None)
+        self.stats = Stats({
+            'msgs_received': None,
+            'msgs_total': None,
+            'msgs_delayed': None,
+            'msgs_not_visible': None,
+            'msgs_deleted': [],
+        })
+
+    def stats_reset(self):
+        """Reset all key metrics."""
+        self.stats.reset()
+
+    def stats_update(self, key, value):
+        """Set key metric."""
+        self.stats.update(key, value)
+
+    def stats_get_str(self):
+        """Return one line string with metrics."""
+        return self.stats.get_all_str()
+
+    def stats_show(self, prefix=''):
+        """Show metrics."""
+        self.stats.show(prefix=prefix)
 
     def is_empty(self):
+        """Check if the current Queue(local) is empty."""
         if len(self.messages) < 1:
             return True
         else:
             return False
 
     def attributes_update(self):
+        """Update local attributes from SQS."""
         self.sqs_attr = self.sqs_conn.get_queue_attributes(QueueUrl=self.queue_url,
                                                            AttributeNames=[
                                                                 'All'
                                                            ])['Attributes'] or None
 
     def attributes_get(self, attr_name):
+        """Get SQS [local] attribute name."""
         if not self.sqs_attr:
             return None
 
@@ -109,35 +134,33 @@ class Queue(SQS):
 
         return self.sqs_attr[attr_name]
 
-    def stat(self):
-        q_start, q_len = self.metrics_queue_time
-        u_print(" Queue stat N=[{}] messages: start=[{}] finish=[{}]".format(q_len, q_start, dnow()))
-
     def receive(self):
+        """Retrieve messages from SQS queue."""
+        self.stats_reset()
         try:
-            m = self.queue.receive_messages(AttributeNames=[
-                                                'SentTimestamp'
-                                            ],
-                                            MaxNumberOfMessages=self.queue_max,
-                                            MessageAttributeNames=[
-                                                'All'
-                                            ],
-                                            VisibilityTimeout=0,
-                                            WaitTimeSeconds=0)
+            self.messages = self.queue.receive_messages(AttributeNames=[
+                                                            'SentTimestamp'
+                                                        ],
+                                                        MaxNumberOfMessages=self.queue_max,
+                                                        MessageAttributeNames=[
+                                                            'All'
+                                                        ],
+                                                        VisibilityTimeout=0,
+                                                        WaitTimeSeconds=0)
 
-            u_print(' Queue.receive() Get {} messages.'.format(len(m)))
+
             self.attributes_update()
-            u_print(' Queue.receive() Total aproximated=[{}] Delayed=[{}] NotVisible=[{}]'.format(
-                                    self.attributes_get('ApproximateNumberOfMessages'),
-                                    self.attributes_get('ApproximateNumberOfMessagesDelayed'),
-                                    self.attributes_get('ApproximateNumberOfMessagesNotVisible')))
-            self.messages = m
+            self.stats_update('msgs_received', len(self.messages))
+            self.stats_update('msgs_total', self.attributes_get('ApproximateNumberOfMessages'))
+            self.stats_update('msgs_delayed', self.attributes_get('ApproximateNumberOfMessagesDelayed'))
+            self.stats_update('msgs_not_visible', self.attributes_get('ApproximateNumberOfMessagesNotVisible'))
+            self.stats_show(prefix=' SQS - Starting Queue: ')
             return True
         except:
             raise
 
     def show_message(self, msg_body):
-        """ Show message body, maybe can keep out of Object """
+        """ Show message body."""
         try:
             b = json.loads(msg_body)
             u_print(json.dumps(b, indent=4))
@@ -145,9 +168,7 @@ class Queue(SQS):
             raise
 
     def show_messages(self):
-        """ Show Message(s) from current Queue """
-        #print("show_messages()")
-        #print self.messages
+        """ Show message(s) from current Queue."""
         if not self.messages:
             u_print(" Queue.show_messages() ERR - There is no messages or malformed messages on queue. ")
             u_print(json.dumps(self.messages, indent=4))
@@ -155,7 +176,6 @@ class Queue(SQS):
 
         try:
             for m in self.messages:
-                #u_print('#> Message: ')
                 self.show_message(m.body)
         except:
             raise
@@ -188,15 +208,15 @@ class Queue(SQS):
 
         try:
             for m in self.messages:
-                u_print(" Queue.delete_messages() Deleting the message: {}".format(m.message_id))
+                u_print_d(" Queue.delete_messages() Deleting the message: {}".format(m.message_id))
                 r = self.queue.delete_messages(Entries=[
                         {
                             'Id': m.message_id,
                             'ReceiptHandle': m.receipt_handle
                         },
                     ])
-                print r
-                u_print(" Queue.delete_messages() Deletied: {}".format(r))
+                u_print_d(" Queue.delete_messages() Deletied: {}".format(r))
+                self.stats_update('msgs_deleted', m.message_id)
         except:
             raise
 

@@ -55,6 +55,9 @@ The simple architecture are:
 We do not create the SNS topic and we are assuming that you have notifications
 when queue is too long, or consumir (s3stream) stopped, etc.
 
+## Use case
+
+* Near real time Cloud Front log processor
 
 ## Goals
 

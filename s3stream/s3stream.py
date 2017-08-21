@@ -16,47 +16,62 @@
 # limitations under the License.
 
 import json
-import sys
-import os
+import sys, os, glob
 import logging
 import time
 from aws import Queue
 from processor import Processor
 from utils import u_print, dnow
+from dotenv import load_dotenv, find_dotenv
+
+
+cfg = {}
+
+
+def load_config():
+    """Lookup .env var file and create cfg structure."""
+    load_dotenv(find_dotenv())
+    global cfg
+    cfg = {
+        'spool_dir': os.getenv('S3S_SPOOL_DIR') or '/tmp/s3-stream',
+        'log_file': os.getenv('S3S_LOG_FILE') or None,
+        'log_level': os.getenv('S3S_LOG_LEVEL') or logging.INFO,
+        'sqs_interval': os.getenv('S3S_SQS_INTERVAL') or 10,
+        'sqs_url': os.getenv('S3S_SQS_URL'),
+        'sqs_max_retrieve': os.getenv('S3S_SQS_RETRIEVAL') or 1,
+        'proc_filter': os.getenv('S3S_S3_FILTER') or None,
+        'output': os.getenv('S3S_OUTPUT') or None,
+        'proc_kf_bs': os.getenv('S3S_KAFKA_BOOTSTRAP') or None,
+        'proc_kf_tp': os.getenv('S3S_KAFKA_TOPIC') or None,
+        'proc_str_replace': os.getenv('S3S_S3_STR_RPL') or False,
+        'proc_str_replace_src': os.getenv('S3S_S3_STR_RPL_SRC') or None,
+        'proc_str_replace_dst': os.getenv('S3S_S3_STR_RPL_DST') or None
+    }
 
 
 def main():
-    """Main program loop."""
-    spool_dir = os.getenv('S3STREAM_SPOOL_DIR') or '/tmp/s3-stream'
-    log_file = os.getenv('LOG_FILE') or None
-    log_level = os.getenv('LOG_LEVEL') or logging.INFO
-    sqs_loop_interval = os.getenv('SQS_LOOP_INTERVAL') or 10
-    sqs_endpoint = os.getenv('SQS_URL')
-    sqs_max_retrieve = os.getenv('SQS_MAX_MSGS_RETRIEVE') or 1
-    proc_filter = os.getenv('S3_FILTER') or None
-    proc_kf_bs = os.getenv('OUTPUT_KAFKA_BOOTSTRAP') or None
-    proc_kf_tp = os.getenv('OUTPUT_KAFKA_TOPIC') or None
-    proc_str_replace = os.getenv('S3_STR_RPL') or False
-    proc_str_replace_src = os.getenv('S3_STR_RPL_SRC') or None
-    proc_str_replace_dst = os.getenv('S3_STR_RPL_DST') or None
+    """Main S3 streamer."""
+    load_config()
+    #print repr(cfg)
 
-    if log_file:
-        logging.basicConfig(filename=log_file, level=logging.INFO)
+    if cfg['log_file']:
+        logging.basicConfig(filename=cfg['log_file'], level=logging.INFO)
     else:
         logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
-    queue = Queue(queue_url=sqs_endpoint,
-                  queue_max=int(sqs_max_retrieve),
+    queue = Queue(queue_url=cfg['sqs_url'],
+                  queue_max=int(cfg['sqs_max_retrieve']),
                   logging=logging)
     proc = Processor(logging=logging,
-                     workdir=spool_dir,
-                     filters=proc_filter,
-                     kafka_bs_servers=proc_kf_bs,
-                     kafka_topic=proc_kf_tp,
-                     str_replace=proc_str_replace,
-                     str_repl_src=proc_str_replace_src,
-                     str_repl_dst=proc_str_replace_dst)
+                     workdir=cfg['spool_dir'],
+                     filters=cfg['proc_filter'],
+                     kafka_bs_servers=cfg['proc_kf_bs'],
+                     kafka_topic=cfg['proc_kf_tp'],
+                     str_replace=cfg['proc_str_replace'],
+                     str_repl_src=cfg['proc_str_replace_src'],
+                     str_repl_dst=cfg['proc_str_replace_dst'])
 
+    u_print(" #>>> Starting s3stream with config: {}".format(cfg))
     try:
         while True:
             queue.receive()
@@ -65,15 +80,21 @@ def main():
                 time.sleep(int(sqs_loop_interval))
                 continue
 
-            #queue.show_messages()
-            if proc.process_body(queue.get_messages_body()):
-                #u_print("#> Proc Status:".format(proc.status(state='latest')))
+            if proc.processor(queue.get_messages_body()):
                 queue.delete_messages()
-                queue.stat()
+                queue.stats_show()
+                queue.stats_show(prefix=' SQS - Finish Queue: ')
+
+    except KeyboardInterrupt as e:
+        u_print(" Get interrupt, cleaning files on spool dir")
+        #clean_dir([cfg['spool_dir']])
+        sys.exit(1)
 
     except Exception as e:
         u_print(" Errors found getting messages= {}".format(e))
-        proc.kafka_close()
+        if proc.kf_sender:
+            proc.kafka_close()
+        raise
         sys.exit(1)
 
 
