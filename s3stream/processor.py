@@ -24,7 +24,7 @@ from aws import S3
 from kafka import KafkaProducer
 from utils import u_print, u_print_d, \
                   dnow, clean_files, gzip_dec, \
-                  Stats
+                  Stats, str2bool
 
 
 class Processor(object):
@@ -42,7 +42,7 @@ class Processor(object):
             self.logging = logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
         self.workdir = workdir
         self.filter = filters
-        self.str_replace = str_replace
+        self.str_replace = str2bool(str_replace)
         self.str_repl_src = str_repl_src
         self.str_repl_dst = str_repl_dst
 

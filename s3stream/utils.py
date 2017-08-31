@@ -82,6 +82,10 @@ def gzip_dec(gzip_in, file_out):
     fd_out.close()
 
 
+def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")
+
+
 class Stats(object):
 
     def __init__(self, metrics):
